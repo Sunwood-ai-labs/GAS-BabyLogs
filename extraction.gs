@@ -18,7 +18,7 @@ function extractBabyLogs() {
     return;
   }
 
-  const headers = ['Category', '日付', '開始', '終了', '終日', 'タイトル', 'カレンダー', 'イベントID', '更新日時'];
+  const headers = ['Category', '日付', '開始', '終了', '終日', 'タイトル', 'カレンダー', 'イベントID', '更新日時', 'ミルク量(ml)'];
   const rows = [];
   let totalEvents = 0;
   let matchedEvents = 0;
@@ -32,7 +32,9 @@ function extractBabyLogs() {
     let matchedPerCalendar = 0;
     events.forEach(event => {
       const title = (event.getTitle() || '').trim();
-      const category = detectCategory(title, SETTINGS.KEYWORDS_POOP, SETTINGS.KEYWORDS_PEE);
+      const milkInfo = parseMilkEventInfo(title);
+      const isMilkLog = milkInfo && milkInfo.amount !== null;
+      const category = isMilkLog ? CATEGORY_MILK : detectCategory(title, SETTINGS.KEYWORDS_POOP, SETTINGS.KEYWORDS_PEE);
       if (category === '未分類') return;
 
       matchedEvents++;
@@ -50,6 +52,7 @@ function extractBabyLogs() {
         calendar.getName() || id,
         event.getId(),
         Utilities.formatDate(new Date(event.getLastUpdated()), TZ, 'yyyy-MM-dd HH:mm:ss'),
+        isMilkLog ? milkInfo.amount : '',
       ]);
     });
 

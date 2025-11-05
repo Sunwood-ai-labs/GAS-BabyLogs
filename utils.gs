@@ -104,6 +104,44 @@ function detectCategory(text, poopKeywords, peeKeywords) {
   return '未分類';
 }
 
+function parseMilkEventInfo(title) {
+  if (!title || typeof title !== 'string') {
+    return null;
+  }
+
+  const normalized = normalizeText_(title);
+  const prefix = (MILK_SERIES_SETTINGS && MILK_SERIES_SETTINGS.TITLE_PREFIX) || '';
+  const normalizedPrefix = prefix ? normalizeText_(prefix) : '';
+
+  const containsMilkKeyword = normalized.includes('ミルク') || normalized.includes('milk');
+  const containsPrefix = normalizedPrefix && normalized.includes(normalizedPrefix);
+  const containsBottleEmoji = title.includes('🍼');
+
+  if (!containsMilkKeyword && !containsPrefix && !containsBottleEmoji) {
+    return null;
+  }
+
+  const matches = normalized.match(/(\d+)\s*ml/g);
+  if (!matches || !matches.length) {
+    return null;
+  }
+
+  const amount = matches.reduce((sum, part) => {
+    const m = part.match(/(\d+)/);
+    if (!m) return sum;
+    const value = Number(m[1]);
+    return Number.isFinite(value) ? sum + value : sum;
+  }, 0);
+
+  if (!Number.isFinite(amount)) {
+    return null;
+  }
+
+  return {
+    amount,
+  };
+}
+
 /** ===== シートユーティリティ ===== */
 function getOrCreateSheet_(ss, name) {
   return ss.getSheetByName(name) || ss.insertSheet(name);

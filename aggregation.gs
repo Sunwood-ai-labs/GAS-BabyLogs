@@ -23,10 +23,13 @@ function aggregateAndChart() {
     throw new Error('baby_logs にデータ行がありません。');
   }
 
+  const header = dataSheet.getRange(1, 1, 1, lastCol).getValues()[0];
   const values = dataSheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
   const COL = { Category: 0, Date: 1 };
+  const milkColIndex = header.indexOf('ミルク量(ml)');
 
   const mapByDate = {};
+  const mapMilkByDate = {};
   values.forEach(row => {
     const category = String(row[COL.Category] || '').trim();
     const dateStr = String(row[COL.Date] || '').trim();
@@ -34,15 +37,31 @@ function aggregateAndChart() {
 
     if (!mapByDate[dateStr]) mapByDate[dateStr] = { poop: 0, pee: 0, both: 0, total: 0 };
 
-    if (category === 'うんち') mapByDate[dateStr].poop++;
-    else if (category === 'しっこ') mapByDate[dateStr].pee++;
-    else if (category === '両方') mapByDate[dateStr].both++;
-    else return;
+    let countedInTotal = false;
+    if (category === 'うんち') {
+      mapByDate[dateStr].poop++;
+      countedInTotal = true;
+    } else if (category === 'しっこ') {
+      mapByDate[dateStr].pee++;
+      countedInTotal = true;
+    } else if (category === '両方') {
+      mapByDate[dateStr].both++;
+      countedInTotal = true;
+    } else if (category === CATEGORY_MILK && milkColIndex >= 0) {
+      const rawAmount = row[milkColIndex];
+      const amount = typeof rawAmount === 'number' ? rawAmount : Number(rawAmount) || 0;
+      if (!mapMilkByDate[dateStr]) mapMilkByDate[dateStr] = { amount: 0, count: 0 };
+      mapMilkByDate[dateStr].amount += amount;
+      mapMilkByDate[dateStr].count += 1;
+    } else return;
 
-    mapByDate[dateStr].total++;
+    if (countedInTotal) {
+      mapByDate[dateStr].total++;
+    }
   });
 
   const mapByMonth = {};
+  const mapMilkByMonth = {};
   Object.keys(mapByDate).forEach(dateKey => {
     const ym = dateKey.slice(0, 7);
     if (!mapByMonth[ym]) mapByMonth[ym] = { poop: 0, pee: 0, both: 0, total: 0 };
@@ -51,6 +70,14 @@ function aggregateAndChart() {
     mapByMonth[ym].pee += dayValue.pee;
     mapByMonth[ym].both += dayValue.both;
     mapByMonth[ym].total += dayValue.total;
+  });
+
+  Object.keys(mapMilkByDate).forEach(dateKey => {
+    const ym = dateKey.slice(0, 7);
+    if (!mapMilkByMonth[ym]) mapMilkByMonth[ym] = { amount: 0, count: 0 };
+    const milkValue = mapMilkByDate[dateKey];
+    mapMilkByMonth[ym].amount += milkValue.amount;
+    mapMilkByMonth[ym].count += milkValue.count;
   });
 
   const summarySheet = getOrCreateSheet_(ss, SUMMARY_SHEET);
@@ -87,8 +114,46 @@ function aggregateAndChart() {
     summarySheet.getRange(2, monthStartCol, monthRows.length, monthHeader.length).setValues(monthRows);
   }
 
+  const milkStartCol = monthStartCol + monthHeader.length + 2;
+  const milkDayHeader = ['日付', 'ミルク量(ml)', '授乳回数'];
+  const milkDayRows = Object.keys(mapMilkByDate)
+    .sort()
+    .map(dateKey => [
+      dateKey,
+      Math.round(mapMilkByDate[dateKey].amount * 10) / 10,
+      mapMilkByDate[dateKey].count,
+    ]);
+
+  summarySheet.getRange(1, milkStartCol, 1, milkDayHeader.length).setValues([milkDayHeader]);
+  if (milkDayRows.length) {
+    summarySheet.getRange(2, milkStartCol, milkDayRows.length, milkDayHeader.length).setValues(milkDayRows);
+  }
+
+  const milkMonthHeader = ['月', 'ミルク量(ml)', '授乳回数'];
+  const milkMonthRows = Object.keys(mapMilkByMonth)
+    .sort()
+    .map(monthKey => [
+      monthKey,
+      Math.round(mapMilkByMonth[monthKey].amount * 10) / 10,
+      mapMilkByMonth[monthKey].count,
+    ]);
+
+  const milkMonthStartRow = Math.max(3, milkDayRows.length + 3);
+  summarySheet.getRange(milkMonthStartRow, milkStartCol, 1, milkMonthHeader.length).setValues([milkMonthHeader]);
+  if (milkMonthRows.length) {
+    summarySheet.getRange(milkMonthStartRow + 1, milkStartCol, milkMonthRows.length, milkMonthHeader.length).setValues(
+      milkMonthRows
+    );
+  }
+
   summarySheet.setFrozenRows(1);
-  autoResizeAllColumns_(summarySheet, monthStartCol + monthHeader.length - 1);
+
+  const lastUsedCol = Math.max(
+    monthStartCol + monthHeader.length - 1,
+    milkStartCol + milkDayHeader.length - 1,
+    milkStartCol + milkMonthHeader.length - 1
+  );
+  autoResizeAllColumns_(summarySheet, lastUsedCol);
 
   summarySheet.getCharts().forEach(chart => summarySheet.removeChart(chart));
 
@@ -99,6 +164,8 @@ function aggregateAndChart() {
     return summarySheet.getRange(startRow, 1, dayDataEndRow - startRow + 1, dayHeader.length);
   })();
 
+  const chartBaseCol = milkStartCol + Math.max(milkDayHeader.length, milkMonthHeader.length) + 4;
+
   const chart1 = summarySheet
     .newChart()
     .asColumnChart()
@@ -106,7 +173,7 @@ function aggregateAndChart() {
     .addRange(dayRangeLastN)
     .setMergeStrategy(Charts.ChartMergeStrategy.MERGE_COLUMNS)
     .setStacked()
-    .setPosition(2, monthStartCol + monthHeader.length + 1, 0, 0)
+    .setPosition(2, chartBaseCol, 0, 0)
     .setOption('title', '日別件数（直近30日・積み上げ）')
     .setOption('legend', { position: 'top' })
     .setOption('hAxis', { slantedText: true })
@@ -119,7 +186,7 @@ function aggregateAndChart() {
     .newChart()
     .asColumnChart()
     .addRange(monthRange)
-    .setPosition(20, monthStartCol + monthHeader.length + 1, 0, 0)
+    .setPosition(20, chartBaseCol, 0, 0)
     .setOption('title', '月別件数')
     .setOption('legend', { position: 'top' })
     .build();
@@ -148,8 +215,44 @@ function aggregateAndChart() {
     .build();
   summarySheet.insertChart(chart3);
 
+  if (milkDayRows.length) {
+    const milkDayEndRow = 1 + Math.max(milkDayRows.length, 1);
+    const milkDayRange = summarySheet.getRange(1, milkStartCol, milkDayEndRow, milkDayHeader.length);
+    const chart4 = summarySheet
+      .newChart()
+      .asColumnChart()
+      .addRange(milkDayRange)
+      .setPosition(2, chartBaseCol + 6, 0, 0)
+      .setOption('title', 'ミルク日別実績（ml）')
+      .setOption('legend', { position: 'none' })
+      .setOption('hAxis', { slantedText: true })
+      .build();
+    summarySheet.insertChart(chart4);
+  }
+
+  if (milkMonthRows.length) {
+    const milkMonthEndRow = milkMonthStartRow + Math.max(milkMonthRows.length, 1);
+    const milkMonthRange = summarySheet.getRange(
+      milkMonthStartRow,
+      milkStartCol,
+      milkMonthEndRow - milkMonthStartRow + 1,
+      milkMonthHeader.length
+    );
+    const chart5 = summarySheet
+      .newChart()
+      .asColumnChart()
+      .addRange(milkMonthRange)
+      .setPosition(20, chartBaseCol + 6, 0, 0)
+      .setOption('title', 'ミルク月別実績（ml）')
+      .setOption('legend', { position: 'none' })
+      .build();
+    summarySheet.insertChart(chart5);
+  }
+
   summarySheet.getRange(1, 1, 1, dayHeader.length).setFontWeight('bold');
   summarySheet.getRange(1, monthStartCol, 1, monthHeader.length).setFontWeight('bold');
+  summarySheet.getRange(1, milkStartCol, 1, milkDayHeader.length).setFontWeight('bold');
+  summarySheet.getRange(milkMonthStartRow, milkStartCol, 1, milkMonthHeader.length).setFontWeight('bold');
 
   logInfo('aggregateAndChart: 集計とグラフの更新が完了しました。');
 }
