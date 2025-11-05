@@ -33,7 +33,7 @@ function extractBabyLogs() {
     events.forEach(event => {
       const title = (event.getTitle() || '').trim();
       const milkInfo = parseMilkEventInfo(title);
-      const isMilkLog = milkInfo && milkInfo.amount !== null;
+      const isMilkLog = !!milkInfo;
       const category = isMilkLog ? CATEGORY_MILK : detectCategory(title, SETTINGS.KEYWORDS_POOP, SETTINGS.KEYWORDS_PEE);
       if (category === '未分類') return;
 
