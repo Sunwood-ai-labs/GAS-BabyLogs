@@ -43,6 +43,9 @@ const SETTINGS = {
 /** 集計結果を出力するシート名 */
 const SUMMARY_SHEET = 'baby_summary';
 
+/** ミルク実績のカテゴリ名 */
+const CATEGORY_MILK = 'ミルク';
+
 /**
  * ミルクタイム定期予定関連の設定。
  * setupMilkTime / deleteMilkTimeSeries で共通利用します。
