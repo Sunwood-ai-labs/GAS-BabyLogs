@@ -233,7 +233,7 @@ function aggregateAndChart() {
     .setStacked()
     .setOption('title', '日別件数（直近30日・積み上げ）')
     .setOption('legend', { position: 'top' })
-    .setOption('hAxis', { slantedText: true })
+    .setOption('hAxis', { slantedText: true, format: 'M/d' })
     .setOption('height', 320)
     .setOption('series', {
       0: { labelInLegend: 'うんち', color: '#8d6e63' },
@@ -296,7 +296,7 @@ function aggregateAndChart() {
       .addRange(milkDayRange)
       .setOption('title', 'ミルク日別実績（ml）')
       .setOption('legend', { position: 'none' })
-      .setOption('hAxis', { slantedText: true })
+      .setOption('hAxis', { slantedText: true, format: 'M/d' })
       .setOption('height', 320)
       .setPosition(milkDayChartPosition.row, milkDayChartPosition.col, 0, 0);
     summarySheet.insertChart(chart4Builder.build());
