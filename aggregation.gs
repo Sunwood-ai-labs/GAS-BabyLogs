@@ -120,14 +120,15 @@ function aggregateAndChart() {
   summarySheet.getRange(summaryStartRow, 1).setBackground('#bbdefb');
 
   summarySheet.getRange(summaryStartRow + 1, 1).setValue('データ期間：');
+  const sortedDateKeys = Object.keys(mapByDate).sort();
   summarySheet.getRange(summaryStartRow + 1, 2).setValue(
-    Object.keys(mapByDate).length > 0
-      ? `${Object.keys(mapByDate).sort()[0]} ～ ${Object.keys(mapByDate).sort()[Object.keys(mapByDate).length - 1]}`
+    sortedDateKeys.length > 0
+      ? `${sortedDateKeys[0]} ～ ${sortedDateKeys[sortedDateKeys.length - 1]}`
       : 'データなし'
   );
 
   summarySheet.getRange(summaryStartRow + 2, 1).setValue('総記録日数：');
-  summarySheet.getRange(summaryStartRow + 2, 2).setValue(Object.keys(mapByDate).length);
+  summarySheet.getRange(summaryStartRow + 2, 2).setValue(sortedDateKeys.length);
 
   summarySheet.getRange(summaryStartRow + 3, 1).setValue('総イベント数：');
   const totalEvents = Object.values(mapByDate).reduce((sum, v) => sum + v.total, 0);
