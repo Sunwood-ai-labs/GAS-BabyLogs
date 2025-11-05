@@ -263,10 +263,15 @@ function aggregateAndChart() {
     dayChartSheet.getRange(2, 1, dayChartRows.length, 1).setNumberFormat('M/d');
 
     // 分析情報を追加
-    const avgPoop = Math.round(dayChartRows.reduce((sum, row) => sum + row[1], 0) / dayChartRows.length * 10) / 10;
-    const avgPee = Math.round(dayChartRows.reduce((sum, row) => sum + row[2], 0) / dayChartRows.length * 10) / 10;
-    const avgBoth = Math.round(dayChartRows.reduce((sum, row) => sum + row[3], 0) / dayChartRows.length * 10) / 10;
-    const avgTotal = Math.round(dayChartRows.reduce((sum, row) => sum + row[4], 0) / dayChartRows.length * 10) / 10;
+    const calculateAverage = (rows, index) => {
+      if (rows.length === 0) return 0;
+      const total = rows.reduce((sum, row) => sum + row[index], 0);
+      return Math.round((total / rows.length) * 10) / 10;
+    };
+    const avgPoop = calculateAverage(dayChartRows, 1);
+    const avgPee = calculateAverage(dayChartRows, 2);
+    const avgBoth = calculateAverage(dayChartRows, 3);
+    const avgTotal = calculateAverage(dayChartRows, 4);
 
     const statsStartRow = dayChartRows.length + 3;
     dayChartSheet.getRange(statsStartRow, 1).setValue('平均（1日あたり）');
