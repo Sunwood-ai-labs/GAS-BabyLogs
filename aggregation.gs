@@ -129,6 +129,7 @@ function aggregateAndChart() {
       mapByDate[dateKey].both,
       mapByDate[dateKey].total,
     ]);
+  const dayRowsDisplay = dayRows.map(row => [formatMonthDay(row[0]), row[1], row[2], row[3], row[4]]);
 
   summarySheet.getRange(1, 1, 1, dayHeader.length).setValues([dayHeader]);
   if (dayRows.length) {
@@ -163,6 +164,7 @@ function aggregateAndChart() {
       Math.round(mapMilkByDate[dateKey].amount * 10) / 10,
       mapMilkByDate[dateKey].count,
     ]);
+  const milkDayRowsDisplay = milkDayRows.map(row => [formatMonthDay(row[0]), row[1], row[2]]);
 
   summarySheet.getRange(1, milkStartCol, 1, milkDayHeader.length).setValues([milkDayHeader]);
   if (milkDayRows.length) {
