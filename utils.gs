@@ -34,6 +34,74 @@ function fmt(dt, tz) {
   return Utilities.formatDate(dt, tz, 'yyyy-MM-dd HH:mm');
 }
 
+function getScriptTimeZone_() {
+  if (typeof SETTINGS !== 'undefined' && SETTINGS && SETTINGS.TIMEZONE) {
+    return SETTINGS.TIMEZONE;
+  }
+  if (typeof Session !== 'undefined' && Session.getScriptTimeZone) {
+    try {
+      const tz = Session.getScriptTimeZone();
+      if (tz) {
+        return tz;
+      }
+    } catch (e) {}
+  }
+  return 'UTC';
+}
+
+function formatMonthDay(value, timeZone) {
+  if (value === null || value === undefined || value === '') {
+    return '';
+  }
+
+  let date;
+  const isDateObject = value instanceof Date || Object.prototype.toString.call(value) === '[object Date]';
+
+  if (isDateObject) {
+    const time = typeof value.getTime === 'function' ? value.getTime() : Date.parse(value);
+    if (!Number.isNaN(time)) {
+      date = new Date(time);
+    }
+  } else if (typeof value === 'number') {
+    date = new Date(value);
+  } else if (typeof value === 'string') {
+    const normalized = value.includes('T') || value.includes('/') ? value : value.replace(/-/g, '/');
+    date = new Date(normalized);
+    if (Number.isNaN(date.getTime())) {
+      const parts = value.split('-');
+      if (parts.length >= 3) {
+        const year = Number(parts[0]);
+        const month = Number(parts[1]);
+        const day = Number(parts[2]);
+        if (![year, month, day].some(n => Number.isNaN(n))) {
+          date = new Date(year, month - 1, day);
+        }
+      }
+    }
+  }
+
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  const tz = timeZone || getScriptTimeZone_();
+  if (typeof Utilities !== 'undefined' && Utilities.formatDate) {
+    return Utilities.formatDate(date, tz, 'M/d');
+  }
+
+  if (typeof Intl !== 'undefined' && Intl.DateTimeFormat) {
+    return new Intl.DateTimeFormat('en-US', {
+      month: 'numeric',
+      day: 'numeric',
+      timeZone: tz,
+    }).format(date);
+  }
+
+  const month = date.getUTCMonth() + 1;
+  const day = date.getUTCDate();
+  return month + '/' + day;
+}
+
 /** ===== テキストユーティリティ ===== */
 function normalizeText_(s) {
   let value = (s || '').trim();

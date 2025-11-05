@@ -27,6 +27,21 @@ function aggregateAndChart() {
   const values = dataSheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
   const COL = { Category: 0, Date: 1 };
   const milkColIndex = header.indexOf('ミルク量(ml)');
+  const startTimeColIndex = header.indexOf('開始');
+
+  const hourMapByCategory = {};
+  const registerHeatmapCount = (categoryKey, startTimeStr) => {
+    if (categoryKey && startTimeStr) {
+      const hour = parseInt(startTimeStr.slice(0, 2), 10);
+      if (Number.isNaN(hour)) {
+        return;
+      }
+      if (hourMapByCategory[categoryKey] === undefined) {
+        hourMapByCategory[categoryKey] = Array(24).fill(0);
+      }
+      hourMapByCategory[categoryKey][hour] += 1;
+    }
+  };
 
   const mapByDate = {};
   const mapMilkByDate = {};
@@ -36,23 +51,29 @@ function aggregateAndChart() {
     if (!dateStr) return;
 
     if (!mapByDate[dateStr]) mapByDate[dateStr] = { poop: 0, pee: 0, both: 0, total: 0 };
+    const startTimeStr =
+      startTimeColIndex >= 0 ? String(row[startTimeColIndex] || '').trim() : '';
 
     let countedInTotal = false;
     if (category === 'うんち') {
       mapByDate[dateStr].poop++;
       countedInTotal = true;
+      registerHeatmapCount(category, startTimeStr);
     } else if (category === 'しっこ') {
       mapByDate[dateStr].pee++;
       countedInTotal = true;
+      registerHeatmapCount(category, startTimeStr);
     } else if (category === '両方') {
       mapByDate[dateStr].both++;
       countedInTotal = true;
+      registerHeatmapCount(category, startTimeStr);
     } else if (category === CATEGORY_MILK && milkColIndex >= 0) {
       const rawAmount = row[milkColIndex];
       const amount = typeof rawAmount === 'number' ? rawAmount : Number(rawAmount) || 0;
       if (!mapMilkByDate[dateStr]) mapMilkByDate[dateStr] = { amount: 0, count: 0 };
       mapMilkByDate[dateStr].amount += amount;
       mapMilkByDate[dateStr].count += 1;
+      registerHeatmapCount(category, startTimeStr);
     } else return;
 
     if (countedInTotal) {
@@ -82,12 +103,27 @@ function aggregateAndChart() {
 
   const summarySheet = getOrCreateSheet_(ss, SUMMARY_SHEET);
   summarySheet.clear();
+  summarySheet.setConditionalFormatRules([]);
+
+  const parseDateForSheet = dateStr => {
+    if (!dateStr) return '';
+    const parts = String(dateStr).split('-');
+    if (parts.length < 3) return dateStr;
+    const [yearStr, monthStr, dayStr] = parts;
+    const year = Number(yearStr);
+    const month = Number(monthStr);
+    const day = Number(dayStr);
+    if ([year, month, day].some(value => Number.isNaN(value))) {
+      return dateStr;
+    }
+    return new Date(year, month - 1, day);
+  };
 
   const dayHeader = ['日付', 'うんち', 'しっこ', '両方', '合計'];
   const dayRows = Object.keys(mapByDate)
     .sort()
     .map(dateKey => [
-      dateKey,
+      parseDateForSheet(dateKey),
       mapByDate[dateKey].poop,
       mapByDate[dateKey].pee,
       mapByDate[dateKey].both,
@@ -95,7 +131,11 @@ function aggregateAndChart() {
     ]);
 
   summarySheet.getRange(1, 1, 1, dayHeader.length).setValues([dayHeader]);
-  if (dayRows.length) summarySheet.getRange(2, 1, dayRows.length, dayHeader.length).setValues(dayRows);
+  if (dayRows.length) {
+    const dayRange = summarySheet.getRange(2, 1, dayRows.length, dayHeader.length);
+    dayRange.setValues(dayRows);
+    dayRange.offset(0, 0, dayRows.length, 1).setNumberFormat('M/d');
+  }
 
   const monthHeader = ['月', 'うんち', 'しっこ', '両方', '合計'];
   const monthRows = Object.keys(mapByMonth)
@@ -119,14 +159,16 @@ function aggregateAndChart() {
   const milkDayRows = Object.keys(mapMilkByDate)
     .sort()
     .map(dateKey => [
-      dateKey,
+      parseDateForSheet(dateKey),
       Math.round(mapMilkByDate[dateKey].amount * 10) / 10,
       mapMilkByDate[dateKey].count,
     ]);
 
   summarySheet.getRange(1, milkStartCol, 1, milkDayHeader.length).setValues([milkDayHeader]);
   if (milkDayRows.length) {
-    summarySheet.getRange(2, milkStartCol, milkDayRows.length, milkDayHeader.length).setValues(milkDayRows);
+    const milkDayRange = summarySheet.getRange(2, milkStartCol, milkDayRows.length, milkDayHeader.length);
+    milkDayRange.setValues(milkDayRows);
+    milkDayRange.offset(0, 0, milkDayRows.length, 1).setNumberFormat('M/d');
   }
 
   const milkMonthHeader = ['月', 'ミルク量(ml)', '授乳回数'];
@@ -148,12 +190,11 @@ function aggregateAndChart() {
 
   summarySheet.setFrozenRows(1);
 
-  const lastUsedCol = Math.max(
+  let lastUsedCol = Math.max(
     monthStartCol + monthHeader.length - 1,
     milkStartCol + milkDayHeader.length - 1,
     milkStartCol + milkMonthHeader.length - 1
   );
-  autoResizeAllColumns_(summarySheet, lastUsedCol);
 
   summarySheet.getCharts().forEach(chart => summarySheet.removeChart(chart));
 
@@ -166,31 +207,59 @@ function aggregateAndChart() {
 
   const chartBaseCol = milkStartCol + Math.max(milkDayHeader.length, milkMonthHeader.length) + 4;
 
-  const chart1 = summarySheet
+  const chartPositions = {
+    event: { row: 2, col: chartBaseCol },
+    milk: { row: 2, col: chartBaseCol + 6 },
+  };
+  const advanceChartPosition = (group, heightRows = 22) => {
+    const target = chartPositions[group];
+    if (!target) {
+      throw new Error(`未定義のチャートグループです: ${group}`);
+    }
+    const { row, col } = target;
+    target.row += heightRows;
+    return { row, col };
+  };
+
+  const dayChartPosition = advanceChartPosition('event');
+  const chart1Builder = summarySheet
     .newChart()
     .asColumnChart()
-    .addRange(summarySheet.getRange(1, 1, 1, 1))
+    .addRange(summarySheet.getRange(1, 1, 1, dayHeader.length))
     .addRange(dayRangeLastN)
     .setMergeStrategy(Charts.ChartMergeStrategy.MERGE_COLUMNS)
     .setStacked()
-    .setPosition(2, chartBaseCol, 0, 0)
     .setOption('title', '日別件数（直近30日・積み上げ）')
     .setOption('legend', { position: 'top' })
-    .setOption('hAxis', { slantedText: true })
-    .build();
-  summarySheet.insertChart(chart1);
+    .setOption('hAxis', { slantedText: true, format: 'M/d' })
+    .setOption('height', 320)
+    .setOption('series', {
+      0: { labelInLegend: 'うんち', color: '#8d6e63' },
+      1: { labelInLegend: 'しっこ', color: '#fbc02d' },
+      2: { labelInLegend: '両方', color: '#26a69a' },
+      3: { labelInLegend: '合計', color: '#546e7a' },
+    })
+    .setPosition(dayChartPosition.row, dayChartPosition.col, 0, 0);
+  summarySheet.insertChart(chart1Builder.build());
 
   const monthDataEndRow = 1 + Math.max(monthRows.length, 1);
   const monthRange = summarySheet.getRange(1, monthStartCol, monthDataEndRow, monthHeader.length);
-  const chart2 = summarySheet
+  const monthChartPosition = advanceChartPosition('event');
+  const chart2Builder = summarySheet
     .newChart()
     .asColumnChart()
     .addRange(monthRange)
-    .setPosition(20, chartBaseCol, 0, 0)
     .setOption('title', '月別件数')
     .setOption('legend', { position: 'top' })
-    .build();
-  summarySheet.insertChart(chart2);
+    .setOption('height', 280)
+    .setOption('series', {
+      0: { labelInLegend: 'うんち', color: '#8d6e63' },
+      1: { labelInLegend: 'しっこ', color: '#fbc02d' },
+      2: { labelInLegend: '両方', color: '#26a69a' },
+      3: { labelInLegend: '合計', color: '#546e7a' },
+    })
+    .setPosition(monthChartPosition.row, monthChartPosition.col, 0, 0);
+  summarySheet.insertChart(chart2Builder.build());
 
   const totalPoop = dayRows.reduce((acc, row) => acc + row[1], 0);
   const totalPee = dayRows.reduce((acc, row) => acc + row[2], 0);
@@ -218,16 +287,17 @@ function aggregateAndChart() {
   if (milkDayRows.length) {
     const milkDayEndRow = 1 + Math.max(milkDayRows.length, 1);
     const milkDayRange = summarySheet.getRange(1, milkStartCol, milkDayEndRow, milkDayHeader.length);
-    const chart4 = summarySheet
+    const milkDayChartPosition = advanceChartPosition('milk');
+    const chart4Builder = summarySheet
       .newChart()
       .asColumnChart()
       .addRange(milkDayRange)
-      .setPosition(2, chartBaseCol + 6, 0, 0)
       .setOption('title', 'ミルク日別実績（ml）')
       .setOption('legend', { position: 'none' })
-      .setOption('hAxis', { slantedText: true })
-      .build();
-    summarySheet.insertChart(chart4);
+      .setOption('hAxis', { slantedText: true, format: 'M/d' })
+      .setOption('height', 320)
+      .setPosition(milkDayChartPosition.row, milkDayChartPosition.col, 0, 0);
+    summarySheet.insertChart(chart4Builder.build());
   }
 
   if (milkMonthRows.length) {
@@ -238,16 +308,88 @@ function aggregateAndChart() {
       milkMonthEndRow - milkMonthStartRow + 1,
       milkMonthHeader.length
     );
-    const chart5 = summarySheet
+    const milkMonthChartPosition = advanceChartPosition('milk');
+    const chart5Builder = summarySheet
       .newChart()
       .asColumnChart()
       .addRange(milkMonthRange)
-      .setPosition(20, chartBaseCol + 6, 0, 0)
       .setOption('title', 'ミルク月別実績（ml）')
       .setOption('legend', { position: 'none' })
-      .build();
-    summarySheet.insertChart(chart5);
+      .setOption('height', 280)
+      .setPosition(milkMonthChartPosition.row, milkMonthChartPosition.col, 0, 0);
+    summarySheet.insertChart(chart5Builder.build());
   }
+
+  const hourLabels = Array.from({ length: 24 }, (_, hour) => `${hour}:00`);
+  const preferredHeatmapOrder = ['うんち', 'しっこ', '両方', CATEGORY_MILK];
+  const categoriesForHeatmap = Object.keys(hourMapByCategory)
+    .filter(key => hourMapByCategory[key].some(count => count > 0))
+    .sort((a, b) => {
+      const indexA = preferredHeatmapOrder.indexOf(a);
+      const indexB = preferredHeatmapOrder.indexOf(b);
+      if (indexA === -1 && indexB === -1) return a.localeCompare(b);
+      if (indexA === -1) return 1;
+      if (indexB === -1) return -1;
+      return indexA - indexB;
+    });
+
+  const heatmapHeader = ['カテゴリ/時間帯', ...hourLabels];
+  const heatmapRows = categoriesForHeatmap.map(categoryKey => [
+    categoryKey,
+    ...hourLabels.map((_, hourIndex) => hourMapByCategory[categoryKey][hourIndex] || 0),
+  ]);
+
+  if (heatmapRows.length) {
+    const heatmapStartRow = pieStartRow;
+    const heatmapStartCol = chartBaseCol + 12;
+    summarySheet
+      .getRange(heatmapStartRow, heatmapStartCol, 1, heatmapHeader.length)
+      .setValues([heatmapHeader]);
+    summarySheet
+      .getRange(heatmapStartRow + 1, heatmapStartCol, heatmapRows.length, heatmapHeader.length)
+      .setValues(heatmapRows);
+
+    const heatmapLastCol = heatmapStartCol + heatmapHeader.length - 1;
+    lastUsedCol = Math.max(lastUsedCol, heatmapLastCol);
+
+    const heatmapChartRange = summarySheet.getRange(
+      heatmapStartRow,
+      heatmapStartCol,
+      heatmapRows.length + 1,
+      heatmapHeader.length
+    );
+    const heatmapChart = summarySheet
+      .newChart()
+      .setChartType(Charts.ChartType.HEATMAP)
+      .addRange(heatmapChartRange)
+      .setOption('title', 'カテゴリ別時間帯ヒートマップ')
+      .setOption('colorAxis', { colors: ['#e8f5e9', '#1b5e20'] })
+      .setPosition(heatmapStartRow + heatmapRows.length + 2, heatmapStartCol, 0, 0)
+      .build();
+    summarySheet.insertChart(heatmapChart);
+
+    const maxHeatmapValue = heatmapRows.reduce((max, row) => {
+      const rowMax = Math.max(...row.slice(1));
+      return Math.max(max, rowMax);
+    }, 0);
+    if (maxHeatmapValue > 0) {
+      const heatmapDataRange = summarySheet.getRange(
+        heatmapStartRow + 1,
+        heatmapStartCol + 1,
+        heatmapRows.length,
+        hourLabels.length
+      );
+      const gradientRule = SpreadsheetApp.newConditionalFormatRule()
+        .setGradientMinpointWithValue('#f1f8e9', SpreadsheetApp.InterpolationType.NUMBER, '0')
+        .setGradientMidpointWithValue('#aed581', SpreadsheetApp.InterpolationType.PERCENTILE, '50')
+        .setGradientMaxpointWithValue('#1b5e20', SpreadsheetApp.InterpolationType.NUMBER, String(maxHeatmapValue))
+        .setRanges([heatmapDataRange])
+        .build();
+      summarySheet.setConditionalFormatRules([gradientRule]);
+    }
+  }
+
+  autoResizeAllColumns_(summarySheet, lastUsedCol);
 
   summarySheet.getRange(1, 1, 1, dayHeader.length).setFontWeight('bold');
   summarySheet.getRange(1, monthStartCol, 1, monthHeader.length).setFontWeight('bold');
